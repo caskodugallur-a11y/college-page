@@ -341,7 +341,7 @@
   }
 
   /* ──────────────────────────────────────────────
-     11. Video Player Overlay
+     11. Video Player Overlay (YouTube embed)
   ────────────────────────────────────────────── */
   function openVideoPlayer(src, title) {
     const overlay = document.createElement('div');
@@ -353,29 +353,27 @@
       padding:2rem;
     `;
 
+    // src is already an embed URL (https://www.youtube.com/embed/VIDEO_ID)
     overlay.innerHTML = `
       <div style="position:absolute;top:1.5rem;right:1.5rem;cursor:pointer;color:white;font-size:1.8rem;z-index:1;" id="caskVideoClose">
         <i class="fa-solid fa-xmark"></i>
       </div>
       ${title ? `<div style="font-family:'Space Grotesk',sans-serif;font-size:1rem;font-weight:700;color:white;margin-bottom:1rem;">${escapeHtml(title)}</div>` : ''}
-      <video
-        controls
-        autoplay
-        style="max-width:90vw;max-height:75vh;border-radius:8px;background:#000;"
-        src="${escapeHtml(src)}"
-      >
-        Your browser does not support the video element.
-      </video>
+      <iframe
+        src="${escapeHtml(src)}?autoplay=1&rel=0"
+        style="width:min(90vw,854px);height:min(50vw,480px);border:none;border-radius:8px;background:#000;"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowfullscreen
+      ></iframe>
     `;
 
     document.body.appendChild(overlay);
 
     document.getElementById('caskVideoClose').addEventListener('click', () => {
-      const vid = overlay.querySelector('video');
-      if (vid) { vid.pause(); vid.src = ''; }
       overlay.remove();
     });
   }
+
 
   /* ──────────────────────────────────────────────
      12. Helper — Loading / Empty / Error States

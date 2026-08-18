@@ -1,34 +1,42 @@
 /* --------------------------------------------------------------------------
    admin.js — IHRD CAS Kodungallur Admin Panel
-   Handles Firebase Authentication, Gallery CRUD, and File Upload/Delete.
+   
+   Storage approach (100% free, no credit card):
+   - Images  → Cloudinary free tier (unsigned upload via API)
+   - Videos  → YouTube / external URL (paste link)
+   - Metadata → Firebase Firestore (free tier)
+   - Auth     → Firebase Authentication (free)
 
    Security model:
-   - Authentication: Firebase Auth (email/password)
-   - Authorization: Firebase Security Rules (see Firestore + Storage rules)
-   - Client-side checks: supplementary UI gating only (NOT the security layer)
-
-   The actual security enforcement happens in Firebase Security Rules,
-   not here. Never trust client-side code alone for authorization.
+   - Authentication : Firebase Auth (email/password)
+   - Authorization  : Firebase Firestore Security Rules
+   - Client-side checks are supplementary UI only — NOT the security layer.
    -------------------------------------------------------------------------- */
 
 (function () {
   'use strict';
 
   /* ────────────────────────────────────────
+     CLOUDINARY CONFIG
+     Fill these in after creating your free
+     Cloudinary account at cloudinary.com
+  ──────────────────────────────────────── */
+const CLOUDINARY_CLOUD_NAME    = 'rhabkmfa';
+const CLOUDINARY_UPLOAD_PRESET = 'cask_gallery';
+
+
+  /* ────────────────────────────────────────
      Constants
   ──────────────────────────────────────── */
-  const MAX_FILE_SIZE_MB   = 50;
+  const MAX_FILE_SIZE_MB    = 10;
   const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
-
   const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-  const ALLOWED_VIDEO_TYPES = ['video/mp4', 'video/webm', 'video/ogg', 'video/quicktime'];
 
   /* ────────────────────────────────────────
      Firebase references
   ──────────────────────────────────────── */
-  let auth    = null;
-  let db      = null;
-  let storage = null;
+  let auth        = null;
+  let db          = null;
   let currentUser = null;
 
   /* ────────────────────────────────────────
@@ -46,9 +54,8 @@
         firebase.initializeApp(cfg);
       }
 
-      auth    = firebase.auth();
-      db      = firebase.firestore();
-      storage = firebase.storage();
+      auth = firebase.auth();
+      db   = firebase.firestore();
 
       // Persist session across page refreshes
       auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
@@ -106,54 +113,51 @@
   function handleLogout() {
     auth.signOut()
       .then(() => showLoginScreen())
-      .catch(err => {
-        showError('admin-error-banner', 'Logout failed: ' + err.message);
-      });
+      .catch(err => showError('admin-error-banner', 'Logout failed: ' + err.message));
   }
 
   /* ────────────────────────────────────────
      5. Show / Hide Panels
   ──────────────────────────────────────── */
   function showLoginScreen() {
-    document.getElementById('loginPanel').style.display  = 'flex';
+    document.getElementById('loginPanel').style.display    = 'flex';
     document.getElementById('dashboardPanel').style.display = 'none';
   }
 
   function showDashboard(user) {
-    document.getElementById('loginPanel').style.display  = 'none';
+    document.getElementById('loginPanel').style.display    = 'none';
     document.getElementById('dashboardPanel').style.display = 'block';
     const nameEl = document.getElementById('adminDisplayName');
     if (nameEl) nameEl.textContent = user.email;
   }
 
   function showConfigWarning() {
-    document.getElementById('configWarning').style.display = 'block';
-    document.getElementById('loginPanel').style.display  = 'none';
+    document.getElementById('configWarning').style.display  = 'block';
+    document.getElementById('loginPanel').style.display     = 'none';
     document.getElementById('dashboardPanel').style.display = 'none';
   }
 
   /* ────────────────────────────────────────
-     6. Upload Form — Media Type Toggle
+     6. Media Type Toggle
   ──────────────────────────────────────── */
   function initMediaTypeToggle() {
-    const mediaTypeSelect  = document.getElementById('mediaType');
-    const imageUploadWrap  = document.getElementById('imageUploadWrap');
-    const videoUploadWrap  = document.getElementById('videoUploadWrap');
+    const mediaTypeSelect = document.getElementById('mediaType');
+    const imageWrap       = document.getElementById('imageUploadWrap');
+    const videoWrap       = document.getElementById('videoUploadWrap');
 
     if (!mediaTypeSelect) return;
 
     mediaTypeSelect.addEventListener('change', () => {
       const val = mediaTypeSelect.value;
-      imageUploadWrap.style.display = (val === 'image') ? 'block' : 'none';
-      videoUploadWrap.style.display = (val === 'video') ? 'block' : 'none';
+      imageWrap.style.display = (val === 'image') ? 'block' : 'none';
+      videoWrap.style.display = (val === 'video') ? 'block' : 'none';
     });
 
-    // Set initial state
     mediaTypeSelect.dispatchEvent(new Event('change'));
   }
 
   /* ────────────────────────────────────────
-     7. Upload Handler
+     7. Upload Handler (main form submit)
   ──────────────────────────────────────── */
   async function handleUpload(e) {
     e.preventDefault();
@@ -169,7 +173,7 @@
     const mediaType = document.getElementById('mediaType').value;
     const btn       = document.getElementById('uploadBtn');
 
-    /* ── Validate required fields ── */
+    // Validate common required fields
     if (!title) {
       showError('upload-error', 'Title is required.');
       return;
@@ -179,15 +183,23 @@
       return;
     }
 
-    setButtonLoading(btn, 'Uploading…');
+    setButtonLoading(btn, '<i class="fa-solid fa-spinner fa-spin"></i> Uploading…');
 
     try {
       let mediaUrl    = '';
-      let storagePath = '';
+      let storagePath = ''; // empty — Cloudinary manages paths internally
+      let videoEmbedUrl = '';
 
       if (mediaType === 'image') {
+        /* ── Image: upload to Cloudinary ── */
+        if (CLOUDINARY_CLOUD_NAME === 'REPLACE_WITH_YOUR_CLOUD_NAME') {
+          showError('upload-error', 'Please set your Cloudinary Cloud Name and Upload Preset in js/admin.js before uploading images.');
+          setButtonNormal(btn, '<i class="fa-solid fa-cloud-arrow-up"></i> Upload to Gallery');
+          return;
+        }
+
         const fileInput = document.getElementById('imageFile');
-        const file = fileInput.files[0];
+        const file      = fileInput ? fileInput.files[0] : null;
 
         if (!file) {
           showError('upload-error', 'Please select an image file.');
@@ -195,117 +207,151 @@
           return;
         }
 
-        /* Client-side validation (supplementary — Storage Rules enforce on server) */
         if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
-          showError('upload-error', 'Unsupported image format. Please use JPG, PNG, WebP, or GIF.');
-          setButtonNormal(btn, '<i class="fa-solid fa-cloud-arrow-up"></i> Upload to Gallery');
-          return;
-        }
-        if (file.size > MAX_FILE_SIZE_BYTES) {
-          showError('upload-error', `File is too large. Maximum allowed size is ${MAX_FILE_SIZE_MB} MB.`);
+          showError('upload-error', 'Unsupported format. Use JPG, PNG, WebP, or GIF.');
           setButtonNormal(btn, '<i class="fa-solid fa-cloud-arrow-up"></i> Upload to Gallery');
           return;
         }
 
-        const result = await uploadFile(file, 'gallery/images');
-        mediaUrl    = result.downloadUrl;
-        storagePath = result.storagePath;
+        if (file.size > MAX_FILE_SIZE_BYTES) {
+          showError('upload-error', `File too large. Maximum is ${MAX_FILE_SIZE_MB} MB.`);
+          setButtonNormal(btn, '<i class="fa-solid fa-cloud-arrow-up"></i> Upload to Gallery');
+          return;
+        }
+
+        mediaUrl = await uploadToCloudinary(file);
 
       } else if (mediaType === 'video') {
-        const fileInput = document.getElementById('videoFile');
-        const file = fileInput.files[0];
-
-        if (!file) {
-          showError('upload-error', 'Please select a video file.');
+        /* ── Video: use pasted YouTube / external URL ── */
+        const rawUrl = document.getElementById('videoUrl').value.trim();
+        if (!rawUrl) {
+          showError('upload-error', 'Please paste a YouTube or video URL.');
           setButtonNormal(btn, '<i class="fa-solid fa-cloud-arrow-up"></i> Upload to Gallery');
           return;
         }
 
-        if (!ALLOWED_VIDEO_TYPES.includes(file.type)) {
-          showError('upload-error', 'Unsupported video format. Please use MP4, WebM, OGG, or MOV.');
-          setButtonNormal(btn, '<i class="fa-solid fa-cloud-arrow-up"></i> Upload to Gallery');
-          return;
-        }
-        if (file.size > MAX_FILE_SIZE_BYTES) {
-          showError('upload-error', `Video file is too large. Maximum allowed size is ${MAX_FILE_SIZE_MB} MB.`);
+        videoEmbedUrl = convertToYouTubeEmbed(rawUrl);
+        if (!videoEmbedUrl) {
+          showError('upload-error', 'Invalid URL. Please paste a valid YouTube video link (e.g. https://youtu.be/XXXXX or https://www.youtube.com/watch?v=XXXXX).');
           setButtonNormal(btn, '<i class="fa-solid fa-cloud-arrow-up"></i> Upload to Gallery');
           return;
         }
 
-        const result = await uploadFile(file, 'gallery/videos');
-        mediaUrl    = result.downloadUrl;
-        storagePath = result.storagePath;
+        mediaUrl = videoEmbedUrl;
       }
 
-      /* ── Save Firestore document ── */
+      /* ── Save metadata to Firestore ── */
       await db.collection('gallery').add({
         title,
         category,
-        date:        date || '',
-        caption:     caption || '',
+        date:         date || '',
+        caption:      caption || '',
         mediaType,
         mediaUrl,
         storagePath,
         thumbnailUrl: '',
-        published:   true,
-        createdAt:   firebase.firestore.FieldValue.serverTimestamp(),
-        updatedAt:   firebase.firestore.FieldValue.serverTimestamp(),
-        createdBy:   currentUser.uid
+        published:    true,
+        createdAt:    firebase.firestore.FieldValue.serverTimestamp(),
+        updatedAt:    firebase.firestore.FieldValue.serverTimestamp(),
+        createdBy:    currentUser.uid
       });
 
-      showSuccess('upload-success', '✅ Gallery item uploaded successfully.');
+      showSuccess('upload-success', '✅ Gallery item added successfully!');
       document.getElementById('uploadForm').reset();
       document.getElementById('mediaType').dispatchEvent(new Event('change'));
       loadGalleryItems();
 
     } catch (err) {
       console.error('[Admin] Upload error:', err);
-      showError('upload-error', 'Upload failed: ' + (err.message || err.code || 'Unknown error'));
+      showError('upload-error', 'Upload failed: ' + (err.message || 'Unknown error. Check browser console.'));
     } finally {
       setButtonNormal(btn, '<i class="fa-solid fa-cloud-arrow-up"></i> Upload to Gallery');
     }
   }
 
   /* ────────────────────────────────────────
-     8. Upload File to Firebase Storage
-     Returns { downloadUrl, storagePath }
+     8. Cloudinary Upload
+     Uses unsigned upload preset — no server needed
   ──────────────────────────────────────── */
-  async function uploadFile(file, pathPrefix) {
-    const safeName    = sanitizeFileName(file.name);
-    const storagePath = `${pathPrefix}/${Date.now()}-${safeName}`;
-    const ref         = storage.ref(storagePath);
-
-    // Show progress feedback
+  async function uploadToCloudinary(file) {
     const progressWrap = document.getElementById('uploadProgress');
     const progressBar  = document.getElementById('uploadProgressBar');
     const progressText = document.getElementById('uploadProgressText');
-    if (progressWrap) progressWrap.style.display = 'block';
 
-    const uploadTask = ref.put(file);
+    const url     = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`;
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+    formData.append('folder', 'cask-gallery');
+
+    if (progressWrap) progressWrap.style.display = 'block';
+    if (progressBar)  progressBar.style.width     = '0%';
+    if (progressText) progressText.textContent    = 'Uploading to Cloudinary…';
 
     return new Promise((resolve, reject) => {
-      uploadTask.on(
-        'state_changed',
-        snapshot => {
-          const pct = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
-          if (progressBar)  progressBar.style.width = pct + '%';
+      const xhr = new XMLHttpRequest();
+
+      xhr.upload.addEventListener('progress', e => {
+        if (e.lengthComputable) {
+          const pct = Math.round((e.loaded / e.total) * 100);
+          if (progressBar)  progressBar.style.width  = pct + '%';
           if (progressText) progressText.textContent = `Uploading… ${pct}%`;
-        },
-        err => {
-          if (progressWrap) progressWrap.style.display = 'none';
-          reject(err);
-        },
-        async () => {
-          if (progressWrap) progressWrap.style.display = 'none';
-          const downloadUrl = await uploadTask.snapshot.ref.getDownloadURL();
-          resolve({ downloadUrl, storagePath });
         }
-      );
+      });
+
+      xhr.addEventListener('load', () => {
+        if (progressWrap) progressWrap.style.display = 'none';
+        if (xhr.status === 200) {
+          const res = JSON.parse(xhr.responseText);
+          resolve(res.secure_url); // HTTPS URL
+        } else {
+          try {
+            const errRes = JSON.parse(xhr.responseText);
+            reject(new Error(errRes.error?.message || 'Cloudinary upload failed'));
+          } catch {
+            reject(new Error('Cloudinary upload failed (status ' + xhr.status + ')'));
+          }
+        }
+      });
+
+      xhr.addEventListener('error', () => {
+        if (progressWrap) progressWrap.style.display = 'none';
+        reject(new Error('Network error during upload. Check your internet connection.'));
+      });
+
+      xhr.open('POST', url);
+      xhr.send(formData);
     });
   }
 
   /* ────────────────────────────────────────
-     9. Load Gallery Items into Admin List
+     9. Convert YouTube URL to embed URL
+     Handles: youtu.be, youtube.com/watch, shorts
+  ──────────────────────────────────────── */
+  function convertToYouTubeEmbed(url) {
+    try {
+      const u = new URL(url);
+      let videoId = '';
+
+      if (u.hostname === 'youtu.be') {
+        videoId = u.pathname.slice(1);
+      } else if (u.hostname.includes('youtube.com')) {
+        if (u.pathname.startsWith('/shorts/')) {
+          videoId = u.pathname.replace('/shorts/', '');
+        } else {
+          videoId = u.searchParams.get('v');
+        }
+      }
+
+      if (!videoId) return null;
+      return `https://www.youtube.com/embed/${videoId}`;
+    } catch {
+      return null;
+    }
+  }
+
+  /* ────────────────────────────────────────
+     10. Load Gallery Items (admin list)
   ──────────────────────────────────────── */
   async function loadGalleryItems() {
     const listEl = document.getElementById('adminGalleryList');
@@ -320,29 +366,31 @@
         .get();
 
       if (snapshot.empty) {
-        listEl.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:2rem;color:#999;">No gallery items yet. Use the upload form above to add one.</td></tr>';
+        listEl.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:2rem;color:#999;">No gallery items yet. Use the form above to add your first one.</td></tr>';
         return;
       }
 
       let rows = '';
       snapshot.forEach(doc => {
-        const d = doc.data();
-        const date = d.date ? d.date : '—';
-        const thumb = d.mediaType === 'image' && d.mediaUrl
-          ? `<img src="${escHtml(d.mediaUrl)}" style="width:56px;height:40px;object-fit:cover;border-radius:4px;border:1px solid #E2DFD9;">`
-          : d.mediaType === 'video'
-            ? `<span style="display:inline-flex;align-items:center;justify-content:center;width:56px;height:40px;background:#1a1a1a;border-radius:4px;"><i class="fa-solid fa-film" style="color:#F7EBDB;"></i></span>`
-            : '—';
+        const d    = doc.data();
+        const date = d.date || '—';
+
+        let thumb = '—';
+        if (d.mediaType === 'image' && d.mediaUrl) {
+          thumb = `<img src="${escHtml(d.mediaUrl)}" style="width:56px;height:40px;object-fit:cover;border-radius:4px;border:1px solid #2E2E2E;" loading="lazy">`;
+        } else if (d.mediaType === 'video') {
+          thumb = `<span style="display:inline-flex;align-items:center;justify-content:center;width:56px;height:40px;background:#1a1a1a;border-radius:4px;font-size:1.2rem;">▶️</span>`;
+        }
 
         rows += `
-          <tr data-doc-id="${escHtml(doc.id)}">
+          <tr>
             <td>${thumb}</td>
-            <td style="font-weight:600;">${escHtml(d.title || '—')}</td>
+            <td style="font-weight:600;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(d.title || '—')}</td>
             <td><span class="admin-badge">${escHtml(d.category || '—')}</span></td>
             <td style="color:#888;">${escHtml(date)}</td>
             <td style="text-transform:capitalize;">${escHtml(d.mediaType || '—')}</td>
             <td>
-              <button class="admin-btn admin-btn-delete" data-doc-id="${escHtml(doc.id)}" data-storage-path="${escHtml(d.storagePath || '')}">
+              <button class="admin-btn admin-btn-delete" data-doc-id="${escHtml(doc.id)}">
                 <i class="fa-solid fa-trash"></i> Delete
               </button>
             </td>
@@ -359,64 +407,39 @@
 
     } catch (err) {
       console.error('[Admin] Load error:', err);
-      listEl.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:2rem;color:#D92323;">Failed to load gallery: ${escHtml(err.message)}</td></tr>`;
+      listEl.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:2rem;color:#D92323;">Failed to load: ${escHtml(err.message)}</td></tr>`;
     }
   }
 
   /* ────────────────────────────────────────
-     10. Delete Handler
+     11. Delete Handler
+     Note: Cloudinary files are NOT auto-deleted
+     (Cloudinary free tier has no delete API without signing).
+     Firestore document is deleted — the image stays on Cloudinary
+     but is no longer referenced. For cleanup, use Cloudinary dashboard.
   ──────────────────────────────────────── */
   async function handleDelete(e) {
-    const btn         = e.currentTarget;
-    const docId       = btn.dataset.docId;
-    const storagePath = btn.dataset.storagePath;
-
+    const btn   = e.currentTarget;
+    const docId = btn.dataset.docId;
     if (!docId) return;
-    if (!confirm('Are you sure you want to delete this gallery item? This action cannot be undone.')) return;
+
+    if (!confirm('Delete this gallery item? The Firestore record will be removed. (The Cloudinary image file can be cleaned up from your Cloudinary dashboard if needed.)')) return;
 
     setButtonLoading(btn, 'Deleting…');
 
-    const errors = [];
-
-    /* Step 1: Delete Firestore document */
     try {
       await db.collection('gallery').doc(docId).delete();
+      loadGalleryItems();
     } catch (err) {
-      errors.push('Firestore deletion failed: ' + (err.message || err.code));
+      console.error('[Admin] Delete error:', err);
+      showError('admin-error-banner', 'Delete failed: ' + (err.message || err.code));
       setButtonNormal(btn, '<i class="fa-solid fa-trash"></i> Delete');
-      showError('admin-error-banner', errors.join(' | '));
-      return;
     }
-
-    /* Step 2: Delete Storage file (if path exists) */
-    if (storagePath) {
-      try {
-        await storage.ref(storagePath).delete();
-      } catch (err) {
-        // Firestore doc is already gone — report Storage failure but don't block UI
-        errors.push(`⚠ Firestore record deleted, but Storage file could not be removed (${err.code}). You may need to manually delete: "${storagePath}" from Firebase Storage.`);
-      }
-    }
-
-    if (errors.length > 0) {
-      showError('admin-error-banner', errors.join(' '));
-    }
-
-    // Refresh list
-    loadGalleryItems();
   }
 
   /* ────────────────────────────────────────
-     11. Utility Helpers
+     12. Utility Helpers
   ──────────────────────────────────────── */
-  function sanitizeFileName(name) {
-    return name
-      .toLowerCase()
-      .replace(/[^a-z0-9.\-_]/g, '-')
-      .replace(/-+/g, '-')
-      .substring(0, 100);
-  }
-
   function escHtml(str) {
     if (!str) return '';
     return String(str)
@@ -430,34 +453,33 @@
   function showError(elId, msg) {
     const el = document.getElementById(elId);
     if (!el) return;
-    el.textContent = msg;
+    el.textContent   = msg;
     el.style.display = 'block';
   }
 
   function clearError(elId) {
     const el = document.getElementById(elId);
     if (!el) return;
-    el.textContent = '';
+    el.textContent   = '';
     el.style.display = 'none';
   }
 
   function showSuccess(elId, msg) {
     const el = document.getElementById(elId);
     if (!el) return;
-    el.textContent = msg;
+    el.textContent   = msg;
     el.style.display = 'block';
-    setTimeout(() => { el.style.display = 'none'; }, 5000);
+    setTimeout(() => { el.style.display = 'none'; }, 6000);
   }
 
   function clearSuccess(elId) {
     const el = document.getElementById(elId);
-    if (!el) return;
-    el.style.display = 'none';
+    if (el) el.style.display = 'none';
   }
 
-  function setButtonLoading(btn, text) {
+  function setButtonLoading(btn, html) {
     if (!btn) return;
-    btn.innerHTML = text;
+    btn.innerHTML = html;
     btn.disabled  = true;
   }
 
@@ -469,45 +491,41 @@
 
   function getFriendlyAuthError(code) {
     const map = {
-      'auth/invalid-email':         'Invalid email address format.',
-      'auth/user-not-found':        'No account found with this email.',
-      'auth/wrong-password':        'Incorrect password. Please try again.',
-      'auth/too-many-requests':     'Too many failed attempts. Please wait before trying again.',
-      'auth/network-request-failed':'Network error. Please check your internet connection.',
-      'auth/user-disabled':         'This admin account has been disabled.',
-      'auth/invalid-credential':    'Invalid email or password. Please check your credentials.'
+      'auth/invalid-email':          'Invalid email address format.',
+      'auth/user-not-found':         'No account found with this email.',
+      'auth/wrong-password':         'Incorrect password. Please try again.',
+      'auth/too-many-requests':      'Too many failed attempts. Please wait a few minutes.',
+      'auth/network-request-failed': 'Network error. Check your internet connection.',
+      'auth/user-disabled':          'This account has been disabled.',
+      'auth/invalid-credential':     'Invalid email or password.'
     };
-    return map[code] || 'Login failed. Please check your credentials and try again.';
+    return map[code] || 'Login failed. Please check your credentials.';
   }
 
   /* ────────────────────────────────────────
-     12. Wire DOM Events
+     13. Wire DOM Events
   ──────────────────────────────────────── */
   function wireDOMEvents() {
-    // Login form
-    const loginForm = document.getElementById('loginForm');
-    if (loginForm) loginForm.addEventListener('submit', handleLogin);
+    const loginForm  = document.getElementById('loginForm');
+    if (loginForm)  loginForm.addEventListener('submit', handleLogin);
 
-    // Logout button
     const logoutBtn = document.getElementById('logoutBtn');
-    if (logoutBtn) logoutBtn.addEventListener('click', handleLogout);
+    if (logoutBtn)  logoutBtn.addEventListener('click', handleLogout);
 
-    // Upload form
     const uploadForm = document.getElementById('uploadForm');
     if (uploadForm) uploadForm.addEventListener('submit', handleUpload);
 
-    // Media type toggle
     initMediaTypeToggle();
   }
 
   /* ────────────────────────────────────────
-     13. Entry Point
+     14. Entry Point
   ──────────────────────────────────────── */
   document.addEventListener('DOMContentLoaded', () => {
     wireDOMEvents();
     init();
 
-    // Allow the Refresh button in admin.html to trigger a gallery reload
+    // Refresh button support
     document.addEventListener('admin:refresh', () => {
       if (currentUser) loadGalleryItems();
     });

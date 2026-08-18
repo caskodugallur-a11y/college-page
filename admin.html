@@ -753,8 +753,8 @@
             <div class="form-field">
               <label for="mediaType">Media Type <span style="color:#D92323;">*</span></label>
               <select id="mediaType">
-                <option value="image">📷 Image (Photo)</option>
-                <option value="video">🎬 Video (File Upload)</option>
+                <option value="image">📷 Image (Photo — uploaded via Cloudinary)</option>
+                <option value="video">🎬 Video (YouTube link)</option>
               </select>
             </div>
 
@@ -780,24 +780,22 @@
                 >
               </div>
               <span class="file-hint">
-                Supported formats: JPG, PNG, WebP, GIF — Maximum size: 50 MB
+                Supported formats: JPG, PNG, WebP, GIF — Maximum size: 10 MB.
+                Uploaded free via <strong style="color:#D4AF37;">Cloudinary</strong> (no storage cost).
               </span>
             </div>
 
-            <!-- Video Upload (conditionally shown) -->
+            <!-- Video URL (YouTube link) -->
             <div id="videoUploadWrap" class="form-field full-col" style="display:none;">
-              <label for="videoFile">Select Video File <span style="color:#D92323;">*</span></label>
-              <div class="file-input-wrap">
-                <input
-                  type="file"
-                  id="videoFile"
-                  accept=".mp4,.webm,.ogg,.mov,video/mp4,video/webm,video/ogg,video/quicktime"
-                >
-              </div>
+              <label for="videoUrl">YouTube Video URL <span style="color:#D92323;">*</span></label>
+              <input
+                type="url"
+                id="videoUrl"
+                placeholder="https://www.youtube.com/watch?v=XXXXXXXXX  or  https://youtu.be/XXXXXXXXX"
+              >
               <span class="file-hint">
-                Supported formats: MP4, WebM, OGG, MOV — Maximum size: 50 MB.
-                <strong style="color:#D4AF37;">Note:</strong>
-                Large video uploads consume Firebase Storage quota quickly.
+                Paste any YouTube video link. It will be embedded directly in the gallery.
+                Supports standard links, short links (youtu.be), and YouTube Shorts.
               </span>
             </div>
 
@@ -874,7 +872,7 @@
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
+  <!-- Firebase Storage SDK removed — images hosted on Cloudinary, videos on YouTube -->
 
   <!-- Firebase Config -->
   <script src="js/firebase-config.js"></script>

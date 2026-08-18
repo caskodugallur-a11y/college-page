@@ -1,38 +1,30 @@
-# ── Firebase runtime logs (never commit these) ──
-firebase-debug.log
-firebase-debug.*.log
+# Firebase
 .firebase/
+firebase-debug.log
 firestore-debug.log
-ui-debug.log
+storage.rules.bak
 
-# ── Environment & secrets (never commit these) ──
-.env
-.env.*
-*.env
+# Firebase Hosting
+.firebaserc
 
-# ── Service account & private credentials (never commit these) ──
-*service-account*.json
-*serviceAccount*.json
-*-adminsdk-*.json
-*private-key*.json
-*.pem
-*.key
-
-# ── Node (if npm is ever used locally) ──
+# Node / npm (if ever used)
 node_modules/
 npm-debug.log*
-yarn-error.log
 
-# ── OS / IDE junk files ──
+# OS files
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Editor
+.vscode/settings.json
+.idea/
 *.swp
 *.swo
-.vscode/
-.idea/
 
-# ── NOTE: firebase-config.js is intentionally NOT excluded.
-# Firebase client-side API keys are PUBLIC by design.
-# Security is enforced by Firebase Security Rules, not by hiding these keys.
-# See: https://firebase.google.com/docs/projects/api-keys
+# Environment / secrets (never commit these)
+.env
+.env.local
+*.key
+*.pem
+serviceAccountKey.json
