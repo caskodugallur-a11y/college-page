@@ -113,11 +113,14 @@
     if (!modalBody) return;
 
     try {
-      const snapshot = await db
-        .collection('gallery')
-        .where('published', '==', true)
-        .orderBy('createdAt', 'desc')
-        .get();
+      // Query without requiring a composite index to prevent 'failed-precondition'
+      let snapshot;
+      try {
+        snapshot = await db.collection('gallery').orderBy('createdAt', 'desc').get();
+      } catch (e) {
+        // Fallback simple query if orderBy fails
+        snapshot = await db.collection('gallery').get();
+      }
 
       if (snapshot.empty) {
         modalBody.innerHTML = buildEmptyState();
@@ -126,8 +129,16 @@
 
       const items = [];
       snapshot.forEach(doc => {
-        items.push({ id: doc.id, ...doc.data() });
+        const data = doc.data();
+        if (data.published !== false) {
+          items.push({ id: doc.id, ...data });
+        }
       });
+
+      if (items.length === 0) {
+        modalBody.innerHTML = buildEmptyState();
+        return;
+      }
 
       renderGallery(items, modalBody);
 
