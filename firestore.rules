@@ -1,11 +1,11 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /gallery/{docId} {
-      // Anyone can read published items
+    match /{document=**} {
+      // Anyone can read any document (public gallery items)
       allow read: if true;
-      // Authenticated admin users can write/create/delete
-      allow create, update, delete: if request.auth != null;
+      // Only authenticated users (admins) can write/create/delete
+      allow write: if request.auth != null;
     }
   }
 }

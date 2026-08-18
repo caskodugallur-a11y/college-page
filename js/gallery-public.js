@@ -51,8 +51,6 @@
      #modalBody instead of the static cardData string
   ────────────────────────────────────────────── */
   function patchGalleryCard() {
-    // Wait until the DOM is ready (this script runs after DOMContentLoaded
-    // because it is placed after main.js in index.html)
     const observeCards = () => {
       // Card-06 cards (both quick-card and nav-grid-card with data-card-num="06")
       const galleryCards = document.querySelectorAll(
@@ -60,11 +58,23 @@
       );
 
       galleryCards.forEach(card => {
-        // Mark patched to avoid duplicate listeners
         if (card.dataset.galleryPatched) return;
         card.dataset.galleryPatched = 'true';
-
         card.addEventListener('click', handleGalleryCardClick, true); // capture
+      });
+
+      // Wire up all "Campus Life" nav links (href="#campus") to open the Gallery modal
+      const campusNavLinks = document.querySelectorAll('a[href="#campus"]');
+      campusNavLinks.forEach(link => {
+        if (link.dataset.campusPatched) return;
+        link.dataset.campusPatched = 'true';
+        link.addEventListener('click', (e) => {
+          e.preventDefault();
+          const targetCard = document.querySelector('.nav-grid-card[data-card-num="06"]') || document.querySelector('[data-card-num="06"]');
+          if (targetCard) {
+            targetCard.click();
+          }
+        });
       });
     };
 
